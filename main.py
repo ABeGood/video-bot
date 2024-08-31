@@ -50,7 +50,7 @@ async def cut(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await bot.send_video(config.test_chat_id, video=file, reply_markup=reply_markup, filename=f'{PROCESSED_PATH}/{file}')
             time.sleep(0.2)
 
-    # remove(f'{DOWNLOAD_PATH}/{DOWNLOAD_NAME}')
+    remove(f'{DOWNLOAD_PATH}/{DOWNLOAD_NAME}')
     # for file in onlyfiles:
     #     remove(f'{PROCESSED_PATH}/{file}')
 
@@ -76,9 +76,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # await query.edit_message_text(text=f"Selected option: {query.data}")
 
 
-bot = Bot(config.token)
+bot = Bot(config.tg_bot_token)
 
-app = ApplicationBuilder().token(config.token).build()
+app = ApplicationBuilder().token(config.tg_bot_token).build()
 
 app.add_handler(CallbackQueryHandler(button))
 app.add_handler(CommandHandler("hello", hello))

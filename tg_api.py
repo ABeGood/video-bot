@@ -17,12 +17,12 @@ def post(message: str, channels: list, image_path=None):
     for channel in channels:
         if image_path is not None:
             if get_post_type[type(image_path)] == 'photo':
-                url = f"https://api.telegram.org/bot{config.token}/sendPhoto"
+                url = f"https://api.telegram.org/bot{config.tg_bot_token}/sendPhoto"
                 files = {'photo': open(image_path, 'rb')}
                 data = {'chat_id': channel, 'caption': message}
 
             elif get_post_type[type(image_path)] == 'media':
-                url = f"https://api.telegram.org/bot{config.token}/sendMediaGroup"
+                url = f"https://api.telegram.org/bot{config.tg_bot_token}/sendMediaGroup"
                 files = {}
                 media = []
                 for i, attachment in enumerate(image_path):
@@ -35,7 +35,7 @@ def post(message: str, channels: list, image_path=None):
                 data = {'chat_id': channel, 'media': json.dumps(media)}
 
         else:
-            url = f"https://api.telegram.org/bot{config.token}/sendMessage"
+            url = f"https://api.telegram.org/bot{config.tg_bot_token}/sendMessage"
             files = None
             data = {'chat_id': channel, 'text': message, 'parse_mode': 'HTML'}
 
