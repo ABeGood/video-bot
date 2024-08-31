@@ -8,7 +8,7 @@ from os import listdir, remove, replace, path, makedirs
 from os.path import isfile, join
 
 DOWNLOAD_NAME = 'downloaded_video.mp4'  # Имя файла будет сразу с расширением .mp4
-DOWNLOAD_PATH = '/Users/alexandrdym/VS_projects/Video_App/video-bot/videos/downloaded'
+DOWNLOAD_PATH = 'videos/downloaded'
 PROCESSED_PATH = 'videos/processed'
 TO_POST_PATH = 'videos/to_post'
 
@@ -25,9 +25,10 @@ async def cut(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         print(f'Loading {context.args[0]}')
         link = context.args[0]
+        filename = link.split('=')[-1].replace('-', '')
 
         ydl_opts = {
-            'outtmpl': f'{DOWNLOAD_PATH}/{DOWNLOAD_NAME}',
+            'outtmpl': f'{DOWNLOAD_PATH}/{filename}',
             'format': 'bestvideo+bestaudio/best',  # Выбирает лучшее качество видео и аудио
             'merge_output_format': 'mp4',  # Задает формат файла после объединения
         }
@@ -36,8 +37,10 @@ async def cut(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ydl.download([link])
 
         # Используем скачанный mp4 файл для дальнейшей обработки
-        scene_list = detect(f'{DOWNLOAD_PATH}/{DOWNLOAD_NAME}', AdaptiveDetector())
-        split_video_ffmpeg(f'{DOWNLOAD_PATH}/{DOWNLOAD_NAME}', scene_list, output_dir=PROCESSED_PATH, show_progress=True)
+        video_path = f'{DOWNLOAD_PATH}/{filename}.mp4'
+        print(video_path)
+        scene_list = detect(video_path, AdaptiveDetector())
+        split_video_ffmpeg(video_path, scene_list, output_dir=PROCESSED_PATH, show_progress=True)
 
         onlyfiles = [f for f in listdir(PROCESSED_PATH) if isfile(join(PROCESSED_PATH, f))]
 
@@ -50,7 +53,7 @@ async def cut(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             with open(f'{PROCESSED_PATH}/{file}', 'rb') as video_file:
                 await bot.send_video(config.test_chat_id, video=video_file, reply_markup=reply_markup)
-                time.sleep(0.2)
+                time.sleep(10)
 
         await update.message.reply_text(f'Loaded {context.args[0]}')
 
@@ -65,7 +68,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if query.data == "0":
             if path.exists(path_to_delete):
                 remove(path_to_delete)
-            await query.delete_message()
+                await query.edit_message_caption(caption='❌ Removed.')
+            else:
+                await query.edit_message_caption(caption='⚠️ ??? Can not find the file to delete.')
+                # await query.delete_message()
         elif query.data == '1':
             replace(f'{PROCESSED_PATH}/{query.message.effective_attachment.file_name}',
                     f'{TO_POST_PATH}/{query.message.effective_attachment.file_name}')
@@ -75,8 +81,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         await query.message.reply_text(f'An error occurred: {str(e)}')
 
-bot = Bot(config.token)
-app = ApplicationBuilder().token(config.token).build()
+bot = Bot(config.tg_bot_token)
+app = ApplicationBuilder().token(config.tg_bot_token).build()
 
 app.add_handler(CallbackQueryHandler(button))
 app.add_handler(CommandHandler("hello", hello))
