@@ -1,84 +1,82 @@
 import config
 import time
-
 from scenedetect import detect, AdaptiveDetector, split_video_ffmpeg
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
-from pytube import YouTube
+from yt_dlp import YoutubeDL
 from os import listdir, remove, replace, path, makedirs
 from os.path import isfile, join
 
-
-DOWNLOAD_NAME = 'downloaded_video.mp4'
-
-DOWNLOAD_PATH = 'videos/downloaded'
+DOWNLOAD_NAME = 'downloaded_video.mp4'  # Имя файла будет сразу с расширением .mp4
+DOWNLOAD_PATH = '/Users/alexandrdym/VS_projects/Video_App/video-bot/videos/downloaded'
 PROCESSED_PATH = 'videos/processed'
 TO_POST_PATH = 'videos/to_post'
 
 path_list = [DOWNLOAD_PATH, PROCESSED_PATH, TO_POST_PATH]
 
 for path_to_check in path_list:
-    if not path.exists(path_to_check): 
+    if not path.exists(path_to_check):
         makedirs(path_to_check)
-
 
 async def hello(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f'Hello {update.effective_user.first_name}')
 
-
 async def cut(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    print(f'Loading {context.args[0]}')
-    link = context.args[0]
-    video = YouTube(link)
-    video.streams.filter(progressive = True, file_extension = "mp4").first().download(output_path = DOWNLOAD_PATH, filename = DOWNLOAD_NAME)
+    try:
+        print(f'Loading {context.args[0]}')
+        link = context.args[0]
 
-    scene_list = detect(f'{DOWNLOAD_PATH}/{DOWNLOAD_NAME}', AdaptiveDetector())
-    split_video_ffmpeg(f'{DOWNLOAD_PATH}/{DOWNLOAD_NAME}', scene_list, output_dir=PROCESSED_PATH, show_progress=True)
+        ydl_opts = {
+            'outtmpl': f'{DOWNLOAD_PATH}/{DOWNLOAD_NAME}',
+            'format': 'bestvideo+bestaudio/best',  # Выбирает лучшее качество видео и аудио
+            'merge_output_format': 'mp4',  # Задает формат файла после объединения
+        }
 
-    onlyfiles = [f for f in listdir(PROCESSED_PATH) if isfile(join(PROCESSED_PATH, f))]
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([link])
 
-    for file in onlyfiles:
-        keyboard = [
-            [
-                InlineKeyboardButton("✅", callback_data="1"),
-                InlineKeyboardButton("❌", callback_data="0"),
+        # Используем скачанный mp4 файл для дальнейшей обработки
+        scene_list = detect(f'{DOWNLOAD_PATH}/{DOWNLOAD_NAME}', AdaptiveDetector())
+        split_video_ffmpeg(f'{DOWNLOAD_PATH}/{DOWNLOAD_NAME}', scene_list, output_dir=PROCESSED_PATH, show_progress=True)
+
+        onlyfiles = [f for f in listdir(PROCESSED_PATH) if isfile(join(PROCESSED_PATH, f))]
+
+        for file in onlyfiles:
+            keyboard = [
+                [InlineKeyboardButton("✅", callback_data="1"),
+                 InlineKeyboardButton("❌", callback_data="0")]
             ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = InlineKeyboardMarkup(keyboard)
 
-        with open(f'{PROCESSED_PATH}/{file}', 'rb') as file:
-            await bot.send_video(config.test_chat_id, video=file, reply_markup=reply_markup, filename=f'{PROCESSED_PATH}/{file}')
-            time.sleep(0.2)
+            with open(f'{PROCESSED_PATH}/{file}', 'rb') as video_file:
+                await bot.send_video(config.test_chat_id, video=video_file, reply_markup=reply_markup)
+                time.sleep(0.2)
 
-    remove(f'{DOWNLOAD_PATH}/{DOWNLOAD_NAME}')
-    # for file in onlyfiles:
-    #     remove(f'{PROCESSED_PATH}/{file}')
+        await update.message.reply_text(f'Loaded {context.args[0]}')
 
-    await update.message.reply_text(f'loaded {context.args[0]}')
+    except Exception as e:
+        await update.message.reply_text(f'An error occurred: {str(e)}')
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Parses the CallbackQuery and updates the message text."""
-    # print(update.message.video.file_name)
     query = update.callback_query
+    path_to_delete = f'{PROCESSED_PATH}/{query.message.effective_attachment.file_name}'
 
-    path_to_delete = (f'{PROCESSED_PATH}/{query.message.effective_attachment.file_name}')
+    try:
+        if query.data == "0":
+            if path.exists(path_to_delete):
+                remove(path_to_delete)
+            await query.delete_message()
+        elif query.data == '1':
+            replace(f'{PROCESSED_PATH}/{query.message.effective_attachment.file_name}',
+                    f'{TO_POST_PATH}/{query.message.effective_attachment.file_name}')
+            await query.edit_message_caption(caption='✅ Saved for later post.')
+        await query.answer()
 
-    if query.data == "0":
-        if path.exists(path_to_check): 
-            remove(path_to_delete)
-        await query.delete_message()
-    elif query.data == '1':
-        replace(f'{PROCESSED_PATH}/{query.message.effective_attachment.file_name}', f'{TO_POST_PATH}/{query.message.effective_attachment.file_name}')
-        await query.edit_message_caption(caption='✅ Saved for later post.')
+    except Exception as e:
+        await query.message.reply_text(f'An error occurred: {str(e)}')
 
-    await query.answer()
-
-    # await query.edit_message_text(text=f"Selected option: {query.data}")
-
-
-bot = Bot(config.tg_bot_token)
-
-app = ApplicationBuilder().token(config.tg_bot_token).build()
+bot = Bot(config.token)
+app = ApplicationBuilder().token(config.token).build()
 
 app.add_handler(CallbackQueryHandler(button))
 app.add_handler(CommandHandler("hello", hello))
