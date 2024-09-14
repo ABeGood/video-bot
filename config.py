@@ -4,3 +4,9 @@ test_chat_id = '@videos_test_ag'
 
 inst_app_id = '3690397777864965'
 inst_app_secret = 'ca20bb76e2304970efc55dbe7c38ae9c'
+
+
+min_length_s = 4.0
+
+client_id = 'xxx'
+client_secret = 'xxx'
