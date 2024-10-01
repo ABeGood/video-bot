@@ -1,3 +1,7 @@
 videos/*
 config.py
 yt.json
+oauth.json
+client_secrets.json
+ig_api.py
+*.ipynb

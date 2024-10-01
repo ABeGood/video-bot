@@ -1,15 +1,11 @@
 import config
-import time
 from scenedetect import detect, AdaptiveDetector, split_video_ffmpeg
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 from yt_dlp import YoutubeDL
 from os import listdir, remove, replace, path, makedirs
 from os.path import isfile, join
-import random
-import subprocess
 from moviepy.editor import VideoFileClip, CompositeVideoClip, vfx
-import yt_api
 
 import re
 import os
@@ -42,7 +38,8 @@ def sanitize_filename(filename):
     filename = re.sub(r'[^\w\-_\. ]', '', filename)
     
     # Replace spaces with underscores
-    filename = filename.replace(' ', '_')
+    filename = filename.replace(' ', '-')
+    filename = filename.replace('_', '-')
     filename = filename.replace('=', '')
     
     # Remove any leading or trailing periods or spaces
@@ -168,62 +165,32 @@ async def cut(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(error_message)
 
 
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    data = query.data.split('_')
-    
-    try:
-        if data[0] == "show":
-            action = data[1]
-            filename = '_'.join(data[2:])  # Rejoin the filename in case it contained underscores
-            path_to_process = f'{PROCESSED_PATH}/{filename}'
-            
-            if action == "0":
-                if path.exists(path_to_process):
-                    remove(path_to_process)
-                    await query.edit_message_caption(caption='❌ Removed.')
-                else:
-                    await query.edit_message_caption(caption='⚠️ Cannot find the file to delete.')
-            elif action == "1":
-                replace(path_to_process, f'{TO_POST_PATH}/{filename}')
-                await query.edit_message_caption(caption='✅ Saved for later post.')
-        else:
-            # Handle the original button logic
-            path_to_delete = f'{PROCESSED_PATH}/{query.message.effective_attachment.file_name}'
-            if query.data == "0":
-                if path.exists(path_to_delete):
-                    remove(path_to_delete)
-                    await query.edit_message_caption(caption='❌ Removed.')
-                else:
-                    await query.edit_message_caption(caption='⚠️ Cannot find the file to delete.')
-            elif query.data == '1':
-                replace(f'{PROCESSED_PATH}/{query.message.effective_attachment.file_name}',
-                        f'{TO_POST_PATH}/{query.message.effective_attachment.file_name}')
-                await query.edit_message_caption(caption='✅ Saved for later post.')
-        
-        await query.answer()
-
-    except Exception as e:
-        await query.message.reply_text(f'An error occurred: {str(e)}')
-
-
 async def show_something(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         # Get a list of all video files in the PROCESSED_PATH
-        video_files = [f for f in listdir(PROCESSED_PATH) if isfile(join(PROCESSED_PATH, f))]
+        video_files = [f for f in os.listdir(PROCESSED_PATH) if os.path.isfile(os.path.join(PROCESSED_PATH, f))]
         
         if not video_files:
             await update.message.reply_text("No processed videos available to show.")
             return
         
-        # Select a random video file
-        random_video = random.choice(video_files)
-        video_path = join(PROCESSED_PATH, random_video)
+        # Function to extract the numeric postfix from a filename
+        def get_numeric_postfix(filename: str) -> int:
+            match = re.search(r'-(\d+)\.mp4$', filename)
+            return int(match.group(1)) if match else float('inf')
+        
+        # Sort video files based on numeric postfix
+        sorted_videos = sorted(video_files, key=get_numeric_postfix)
+        
+        # Select the video with the minimum numeric postfix
+        selected_video = sorted_videos[0]
+        video_path = os.path.join(PROCESSED_PATH, selected_video)
         
         # Create the inline keyboard
         keyboard = [
-            [InlineKeyboardButton("✅", callback_data=f"show_1_{random_video}"),
-             InlineKeyboardButton("❌", callback_data=f"show_0_{random_video}")]
+            [InlineKeyboardButton("✅", callback_data=f"approved_1_{selected_video}"),
+             InlineKeyboardButton("❌", callback_data=f"approved_0_{selected_video}")],
+            [InlineKeyboardButton("Show next to merge", callback_data=f"next_{selected_video}")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -235,6 +202,84 @@ async def show_something(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f'An error occurred: {str(e)}')
 
 
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    data = query.data.split('_')
+    
+    try:
+        if data[0] == "approved":
+            action = data[1]
+            filename = '_'.join(data[2:])  # Rejoin the filename in case it contained underscores
+            path_to_process = f'{PROCESSED_PATH}/{filename}'
+            
+            if action == "0":
+                if path.exists(path_to_process):
+                    remove(path_to_process)
+
+                    keyboard = [
+                        [InlineKeyboardButton("Show next", callback_data=f"show_next")],
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    await query.edit_message_caption(caption='❌ Removed.', reply_markup=reply_markup)
+                else:
+                    await query.edit_message_caption(caption='⚠️ Cannot find the file to delete.')
+            elif action == "1":
+                replace(path_to_process, f'{TO_POST_PATH}/{filename}')
+
+                keyboard = [
+                        [InlineKeyboardButton("Show next", callback_data=f"show_next")],
+                    ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_caption(caption='✅ Saved for later post.', reply_markup=reply_markup)
+
+        elif data[0] == "next":
+            filename = '_'.join(data[1:])  # Rejoin the filename in case it contained underscores
+            next_filename = increase_video_postfix(filename)
+            next_file_path = f'{PROCESSED_PATH}/{next_filename}'
+
+            if os.path.isfile(next_file_path) and os.path.exists(next_file_path):
+                keyboard = [
+                    [InlineKeyboardButton("✅", callback_data=f"merge_{next_filename}"),
+                    InlineKeyboardButton("❌", callback_data=f"deleteboth_{next_filename}")],
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+        
+                # Send the video with the inline keyboard
+                with open(next_file_path, 'rb') as video_file:
+                    await query.message.reply_video(video=video_file, reply_markup=reply_markup)
+            else:
+                await query.message.reply_text(f'No next video.')
+
+        else:
+            await query.message.reply_text(f'Unknown callback, wtf?')
+        
+        await query.answer()
+
+    except Exception as e:
+        await query.message.reply_text(f'An error occurred: {str(e)}')
+
+
+def increase_video_postfix(filename: str) -> str:
+    # Split the filename into parts
+    match = re.match(r'^(.*?Scene-)(\d+)(\.mp4)$', filename)
+    
+    if not match:
+        raise ValueError(f"Invalid filename format: {filename}")
+    
+    prefix, number, extension = match.groups()
+    
+    # Increase the number by 1
+    new_number = int(number) + 1
+    
+    # Format the new number with leading zeros
+    new_number_str = f"{new_number:03d}"
+    
+    # Construct the new filename
+    new_filename = f"{prefix}{new_number_str}{extension}"
+    
+    return new_filename
+
+
 bot = Bot(config.tg_bot_token)
 app = ApplicationBuilder().token(config.tg_bot_token).build()
 
@@ -243,6 +288,5 @@ app.add_handler(CommandHandler("hello", hello))
 app.add_handler(CommandHandler("cut", cut))
 app.add_handler(CommandHandler("show_something", show_something))
 
-# resize_video('videos/processed/vJMgZb_q-pRQ-Scene-046.mp4', 'videos/processed/00000.mp4', output_resolution=(1080, 1920))
 
 app.run_polling()
